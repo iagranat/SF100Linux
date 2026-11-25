@@ -385,6 +385,22 @@ static bool IsRangeErase(void)
     return (g_ucOperation & ERASE) && !(g_ucOperation & (PROGRAM | BATCH | READ_TO_FILE | CSUM | BLANK)) && (g_bAddrGiven || g_bLenGiven);
 }
 
+static bool g_bProgramFileLoaded = false;
+
+// Load and check the file to be programmed before anything is erased
+static bool ValidateProgramFile(void)
+{
+    bool result = true;
+
+    if (g_ucOperation & (PROGRAM | BATCH)) {
+        result = do_loadFile() != 0;
+        if (result && !g_bIsNANDFlash)
+            result = ValidateProgramParameters(0);
+        g_bProgramFileLoaded = result;
+    }
+    return result;
+}
+
 int Sequence()
 {
     // *** the calling order in the following block must be kept as is ***
@@ -399,6 +415,10 @@ int Sequence()
 		g_bIsNANDFlash = true;
 		FillNANDContext();
 	}
+
+    if (!ValidateProgramFile()) {
+        return (g_ucOperation & PROGRAM) ? EXCODE_FAIL_PROG : EXCODE_FAIL_BATCH;
+    }
 
 	if((g_ucOperation & ERASE) == 0 && (g_ucOperation & SPECIAL_ERASE)==0)
 	{     
@@ -1893,8 +1913,10 @@ void do_EraseRange(void)
 
 void do_Program(void)
 {
-    if (!do_loadFile())
-        return; 
+    if (!g_bProgramFileLoaded && !do_loadFile()) {
+        g_bStatus = false;
+        return;
+    }
 
     SaveProgContextChanges();
 
@@ -2019,8 +2041,10 @@ void SaveProgContextChanges(void)
 
 void do_Auto(void)
 {
-    if (do_loadFile() == 0)
+    if (!g_bProgramFileLoaded && !do_loadFile()) {
+        g_bStatus = false;
         return;
+    }
     SaveProgContextChanges();
 
     printf("%s", msg_info_auto);
